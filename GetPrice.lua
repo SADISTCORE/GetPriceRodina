@@ -2,6 +2,8 @@ local sampev = require("lib.samp.events")
 local jsoncfg = require("jsoncfg")
 local encoding = require("encoding")
 local dlstatus = require ("moonloader").download_status
+local ltn12 = require ("ltn12")
+local http = require ("socket.http")
 
 -- Конфигурация GitHub
 local GITHUB_REPO = "https://raw.githubusercontent.com/SADISTCORE/GetPriceRodina/refs/heads/main/"
@@ -38,14 +40,27 @@ local buyData = {}
 
 -- Загрузка данных с GitHub
 local function fetchGitHubData(url, callback)
-	local file_path = getWorkingDirectory() .. "/config/" .. url:match("([^/]+%.json)$")
-	downloadUrlToFile(url, file_path, function(_, status, _, _)
-		if status == dlstatus.STATUS_EXECUTING then
+	local file_name = url:match("([^/]+)$")
+	local file_path = getWorkingDirectory() .. "/config/" .. file_name
+	local response_body = {}
+	
+	local result, status_code, headers = http.request{
+		url = url,
+		sink = ltn12.sink.table(response_body),
+	}
+	
+	if status_code == 200 then
+		local file = io.open(file_path, "w")
+		if file then
+			file:write(table.concat(response_body))
+			file:close()
 			callback(true, file_path)
 		else
 			callback(false)
 		end
-	end)
+	else
+		callback(false)
+	end
 end
 
 -- Проверка обновлений
@@ -53,15 +68,14 @@ local function checkForUpdates()
 	if updateInProgress then return end
 	updateInProgress = true
 	
-	-- Загрузка версии
-	downloadUrlToFile(VERSION_URL, nil, function(_, status, _, _)
-		if status == dlstatus.STATUS_ENDDOWNLOADDATA then 
-			local remoteVersion = tonumber(io.readfile(update_path))
-			local localVersion = tonumber(io.readfile("version.txt") or 0
+	fetchGitHubData(VERSION_URL, function(success, path)
+		if success then
+			local remoteVersion = tonumber(io.open(path, "r"):read("*a"))
+			local localVersion = tonumber(io.open("version.txt", "r"):read("*a") or 0)
 			
 			if remoteVersion > localVersion then
 				updateAvailable = true
-				sampAddChatMessage("Доступно обновление цен! Введите /updateprices", COLORS.warning)
+				sampAddChatMessage("Доступно обновление цен! Введи /updateprices", COLORS.warning)
 			end
 		end
 		updateInProgress = false
